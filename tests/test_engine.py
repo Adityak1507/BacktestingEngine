@@ -100,7 +100,7 @@ def test_strategy_cannot_see_future_bars():
             hist = ctx.history()
             seen.append((ctx.timestamp, hist.index[-1], len(hist)))
 
-    data = make_bars([1, 2, 3, 4, 5])
+    data = make_bars([10, 20, 30, 40, 50])
     Backtest(data, Spy()).run()
     for i, (ts, last, n) in enumerate(seen):
         assert ts == last

@@ -22,6 +22,8 @@ class SmaCrossover(Strategy):
     """Long when the fast moving average is above the slow one, flat otherwise."""
 
     def __init__(self, fast: int = 20, slow: int = 50, symbol: Optional[str] = None):
+        if fast < 1:
+            raise ValueError("fast window must be at least 1")
         if fast >= slow:
             raise ValueError("fast window must be shorter than slow window")
         self.fast, self.slow, self.symbol = fast, slow, symbol
@@ -48,6 +50,10 @@ class RsiMeanReversion(Strategy):
         exit_level: float = 55,
         symbol: Optional[str] = None,
     ):
+        if period < 1:
+            raise ValueError("RSI period must be at least 1")
+        if not 0 <= oversold < exit_level <= 100:
+            raise ValueError("RSI levels must satisfy 0 <= oversold < exit_level <= 100")
         self.period, self.oversold, self.exit_level, self.symbol = period, oversold, exit_level, symbol
 
     def _rsi(self, ctx: Context) -> Optional[float]:

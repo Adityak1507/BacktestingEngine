@@ -1,0 +1,70 @@
+{
+  "flow": "strategy-agent",
+  "metrics": [
+    {
+      "id": "pass",
+      "label": "Pass",
+      "kind": "binary"
+    },
+    {
+      "id": "valid",
+      "label": "Valid code",
+      "kind": "binary"
+    },
+    {
+      "id": "runs",
+      "label": "Runs",
+      "kind": "binary"
+    },
+    {
+      "id": "no_lookahead",
+      "label": "No lookahead",
+      "kind": "binary"
+    },
+    {
+      "id": "agreement",
+      "label": "Agreement",
+      "kind": "float",
+      "scale": 1
+    }
+  ],
+  "perf_fields": [
+    {
+      "id": "latency_s",
+      "label": "Latency",
+      "unit": "s"
+    },
+    {
+      "id": "turns",
+      "label": "Model turns"
+    },
+    {
+      "id": "tool_calls",
+      "label": "Tool calls"
+    },
+    {
+      "id": "dev_runs",
+      "label": "Test runs"
+    },
+    {
+      "id": "text_tool_calls",
+      "label": "Text tool calls"
+    },
+    {
+      "id": "in_tokens",
+      "label": "In tokens"
+    },
+    {
+      "id": "out_tokens",
+      "label": "Out tokens"
+    }
+  ],
+  "harness_paths": [
+    "agent/agent.py",
+    "agent/llm.py",
+    "agent/sandbox.py",
+    "evals/strategy_agent/cases.py",
+    "evals/strategy_agent/grading.py",
+    "evals/strategy_agent/run_eval.py"
+  ]
+}

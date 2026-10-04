@@ -5,3 +5,9 @@ __pycache__/
 .venv/
 build/
 dist/
+
+# eval outputs: keep results and summaries, not bulky or local-only files
+evals/**/runs/**/traces/
+evals/**/runs/**/report.html
+evals/**/runs/**/trajectory/
+evals/**/runs/.approved_harness

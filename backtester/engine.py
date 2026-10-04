@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import asdict
 from typing import Dict, Mapping, Optional, Union
 
@@ -173,14 +174,29 @@ class Backtest:
         self._has_bar_np = {sym: s.to_numpy() for sym, s in self._has_bar.items()}
 
         self.strategy = strategy
+        self.initial_cash = initial_cash
+        self.costs = CostModel(commission, commission_min, slippage)
+        self.allow_short = allow_short
         self.portfolio = Portfolio(initial_cash)
-        self.broker = Broker(CostModel(commission, commission_min, slippage), allow_short)
+        self.broker = Broker(self.costs, allow_short)
         self.periods_per_year = periods_per_year
         self.risk_free_rate = risk_free_rate
 
     def run(self) -> BacktestResult:
+        """Run the backtest from a clean state; calling it again gives the same result.
+
+        The strategy is deep-copied so state it keeps between bars starts fresh each
+        run. The instance that actually ran is available as `result.strategy`.
+        """
+        self.portfolio = Portfolio(self.initial_cash)
+        self.broker = Broker(self.costs, self.allow_short)
+        try:
+            strategy = copy.deepcopy(self.strategy)
+        except (TypeError, copy.Error):
+            # Holds something uncopyable (a lock, a connection); run it as-is.
+            strategy = self.strategy
         ctx = Context(self)
-        self.strategy.init(ctx)
+        strategy.init(ctx)
 
         equity = []
         valid_from = None
@@ -207,7 +223,7 @@ class Backtest:
             if valid_from is None:
                 valid_from = i
             equity.append(self.portfolio.equity(prices))
-            self.strategy.on_bar(ctx)
+            strategy.on_bar(ctx)
 
         if valid_from is None:
             raise ValueError("price data never overlaps for all symbols")
@@ -218,10 +234,12 @@ class Backtest:
         bench_close = self.data[first]["close"].loc[eq_index]
         benchmark = self.portfolio.initial_cash * bench_close / bench_close.iloc[0]
 
-        return BacktestResult(
+        result = BacktestResult(
             equity_series,
             self.portfolio,
             self.periods_per_year,
             self.risk_free_rate,
             benchmark.rename("benchmark"),
         )
+        result.strategy = strategy
+        return result

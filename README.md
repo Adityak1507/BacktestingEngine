@@ -8,7 +8,8 @@ performance metrics.
 
 - **Event-driven loop**: bars are processed one at a time, like a live system.
 - **No look-ahead**: strategies only see data up to the current bar, and orders
-  placed on bar *t* fill on bar *t+1*.
+  placed on bar *t* fill on bar *t+1*. `ctx.history()` returns a copy, so even
+  numpy's `.base` can't reach later bars.
 - **Order types**: market, limit and stop orders, plus helpers such as
   `order_target_percent` and `close_position`.
 - **Realistic costs**: percentage commission, minimum commission and slippage.
@@ -25,6 +26,10 @@ performance metrics.
 - **Web app**: a React + TypeScript frontend on a FastAPI backend, with
   backtests, an optimizer heatmap, light and dark themes.
 - **Interactive charts** in Python with Plotly (optional).
+- **LLM strategy agent** that turns plain-English trading ideas into `Strategy`
+  code, tests it in a sandbox and submits it, running on local or hosted
+  open-weight models. It ships with a programmatic **eval harness** covering 39
+  cases, with hidden-data grading and a look-ahead detector.
 
 ## Install
 
@@ -159,6 +164,38 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 `{"source": "csv", "csv_text", "csv_name"}`. Interactive docs are at
 `/docs` while the server is running.
 
+## Strategy agent and eval
+
+`agent/` contains an LLM agent that writes strategies for this engine. It talks to
+any OpenAI-compatible endpoint, such as Ollama, vLLM, LM Studio, Groq, Together or
+OpenRouter.
+
+```python
+from agent import OpenAICompatModel, StrategyAgent
+
+model = OpenAICompatModel("qwen2.5-coder:7b", base_url="http://localhost:11434/v1")
+result = StrategyAgent(model).run("Buy when RSI(14) drops below 30, sell above 55")
+print(result.outcome, result.code)   # "submitted" + code, or "declined" + reason
+```
+
+The agent has three tools: `run_backtest` tests code on synthetic data,
+`submit_strategy` hands in the final version, and `decline` refuses requests that
+need future data, data the engine doesn't have, or unsupported features. Generated
+code is statically checked and run in a subprocess sandbox. The agent can also
+recover tool calls that a model writes as plain JSON text, which is common with
+open-weight models.
+
+[`evals/strategy_agent/`](evals/strategy_agent/README.md) grades the agent on 39
+cases. It runs each submission on hidden data and compares positions with
+reference implementations. It also checks for look-ahead by perturbing every bar
+after a cut-off and confirming that earlier orders don't change.
+
+```bash
+pip install -e ".[agent]"
+python -m evals.strategy_agent.run_eval --fake oracle            # harness check, ~100%
+python -m evals.strategy_agent.run_eval --model qwen2.5-coder:7b # local model via Ollama
+```
+
 ## Fast parameter sweeps (Numba)
 
 The event loop runs Python on every bar, which is flexible but too slow for
@@ -198,6 +235,8 @@ backtester/
   metrics.py     performance statistics
   engine.py      Backtest event loop and BacktestResult (+ charts)
   fast.py        Numba-compiled signal backtests and grid search
+agent/           LLM strategy agent: tools, sandbox, OpenAI-compatible client
+evals/           eval harness for the agent (cases, grader, runner)
 api/main.py      FastAPI backend
 frontend/        React + TypeScript UI (Vite, Recharts)
 examples/        runnable example
@@ -217,6 +256,7 @@ cd frontend && npm run build    # type-checks and builds the UI
   limit or stop is hit the fill is assumed to be complete.
 - No margin, borrow costs or dividends, and short positions are not
   margin-checked.
-- Orders are good-till-cancelled; there are no time-in-force options.
+- Orders are good-till-cancelled; there are no time-in-force options. Stop-limit
+  orders (both `limit_price` and `stop_price`) are rejected.
 - The Numba fast path handles single-asset long/flat signals only. Use
   `Backtest` for anything else.

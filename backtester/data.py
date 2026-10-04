@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume"]
+OHLC_TOLERANCE = 0.005  # open/close may sit up to 0.5% outside high/low before it's an error
 
 
 def validate_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
@@ -24,7 +25,30 @@ def validate_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_index()
     if df.index.has_duplicates:
         raise ValueError("price data has duplicate timestamps")
-    return df[REQUIRED_COLUMNS].astype(float)
+    df = df[REQUIRED_COLUMNS].astype(float)
+
+    prices = df[["open", "high", "low", "close"]]
+    if (prices <= 0).any().any():
+        raise ValueError(f"price data has non-positive prices at {_first_bad(prices.le(0).any(axis=1))}")
+    if (df["volume"] < 0).any():
+        raise ValueError(f"price data has negative volume at {_first_bad(df['volume'] < 0)}")
+    if (df["high"] < df["low"]).any():
+        raise ValueError(f"price data has high below low at {_first_bad(df['high'] < df['low'])}")
+    # Adjusted data often has open/close a rounding error outside high/low; widen the
+    # range to fit, but reject bars that are inconsistent by more than that.
+    body_high = df[["open", "close"]].max(axis=1)
+    body_low = df[["open", "close"]].min(axis=1)
+    off = (body_high > df["high"] * (1 + OHLC_TOLERANCE)) | (body_low < df["low"] * (1 - OHLC_TOLERANCE))
+    if off.any():
+        raise ValueError(f"price data has open/close outside the high-low range at {_first_bad(off)}")
+    df["high"] = df[["open", "high", "close"]].max(axis=1, skipna=False)
+    df["low"] = df[["open", "low", "close"]].min(axis=1, skipna=False)
+    return df
+
+
+def _first_bad(mask: pd.Series) -> str:
+    bad = mask[mask]
+    return f"{bad.index[0]} ({len(bad)} rows)"
 
 
 def load_csv(path: str, date_column: str = "date") -> pd.DataFrame:

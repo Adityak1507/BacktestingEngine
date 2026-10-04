@@ -1,0 +1,35 @@
+{
+  "cases_scored": 39,
+  "errors": 0,
+  "truncated": 0,
+  "pass_rate": 0.28205128205128205,
+  "pass_ci95": [
+    0.16543325013943294,
+    0.43775617322477384
+  ],
+  "metric_means": {
+    "pass": 0.28205128205128205,
+    "valid": 0.38461538461538464,
+    "runs": 0.38461538461538464,
+    "no_lookahead": 0.38461538461538464,
+    "agreement": 0.33573042534719316
+  },
+  "pass_by_category": {
+    "breakout": 0.0,
+    "calendar": 0.5,
+    "decline": 1.0,
+    "loose": 0.3333333333333333,
+    "mean_reversion": 0.0,
+    "multi_asset": 0.3333333333333333,
+    "risk": 0.0,
+    "trend": 0.3333333333333333
+  },
+  "mean_latency_s": 71.43205128205128,
+  "tokens": {
+    "input": 82113,
+    "output": 11303
+  },
+  "models": [
+    "qwen2.5-coder:7b"
+  ]
+}

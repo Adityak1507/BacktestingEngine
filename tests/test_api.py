@@ -69,3 +69,27 @@ def test_sweep_grid():
 def test_sweep_rejects_huge_grid():
     body = {"data": SMALL, "fast_min": 2, "fast_max": 1000, "slow_min": 3, "slow_max": 1000, "step": 1}
     assert client.post("/api/sweep", json=body).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        {"name": "sma_crossover", "params": {"fast": 0, "slow": 50}},
+        {"name": "sma_crossover", "params": {"fast": -5, "slow": 50}},
+        {"name": "rsi_mean_reversion", "params": {"period": 0}},
+        {"name": "rsi_mean_reversion", "params": {"oversold": 50, "exit_level": 40}},
+        {"name": "sma_crossover", "params": {"fats": 10}},
+    ],
+)
+def test_out_of_range_strategy_params_return_422(strategy):
+    r = client.post("/api/backtest", json={"data": SMALL, "strategy": strategy})
+    assert r.status_code == 422, r.text
+
+
+def test_sweep_rejects_enormous_range_without_building_it():
+    import time
+
+    body = {"data": SMALL, "fast_min": 2, "fast_max": 10**12, "slow_min": 3, "slow_max": 4, "step": 1}
+    started = time.perf_counter()
+    assert client.post("/api/sweep", json=body).status_code == 422
+    assert time.perf_counter() - started < 1

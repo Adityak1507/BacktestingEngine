@@ -127,8 +127,14 @@ class Broker:
 
             if not order.is_buy and not self.allow_short:
                 qty = -min(-qty, max(held, 0.0))
-            if order.is_buy and held >= 0:
-                qty = min(qty, self._affordable(cash, price))
+            if order.is_buy:
+                # Covering a short is always allowed; any new long beyond it must be paid for.
+                cover = min(qty, max(-held, 0.0))
+                if qty > cover:
+                    budget = cash - cover * price - self.costs.commission(cover, price)
+                    qty = cover + min(qty - cover, self._affordable(budget, price))
+                    while qty > cover and qty * price + self.costs.commission(qty, price) > cash:
+                        qty -= 1
 
             if qty == 0:
                 continue
