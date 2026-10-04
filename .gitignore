@@ -13,3 +13,6 @@ evals/**/runs/**/trajectory/
 evals/**/runs/.approved_harness
 
 .claude/
+
+# API keys for the free-tier provider chains
+.env

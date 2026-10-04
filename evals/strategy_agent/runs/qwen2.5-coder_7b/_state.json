@@ -51,6 +51,10 @@
       "label": "Text tool calls"
     },
     {
+      "id": "decline_pushbacks",
+      "label": "Pushbacks"
+    },
+    {
       "id": "in_tokens",
       "label": "In tokens"
     },

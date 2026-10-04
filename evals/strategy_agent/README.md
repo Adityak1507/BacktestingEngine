@@ -54,6 +54,31 @@ the closest acceptable reading and pass at ≥ 95%.
 - The sandbox is a guard against mistakes and casual cheating, not a security boundary. Run
   untrusted models in a container.
 
+## Results
+
+1 rep per case. CI = 95% Wilson interval.
+
+| Model | Provider | Agent | Pass | By category |
+|---|---|---|---|---|
+| gpt-oss-120b | Groq free tier | v1 | **92%** (35/38, 79–97%)\* | trend, breakout, risk, calendar, multi-asset 100%; mean reversion 83%; loose 88%; decline 75% |
+| Qwen2.5-Coder 7B | local Ollama | baseline | 28% (11/39, 17–44%) | decline 100% (3 of 4 for the wrong reason); calendar 50%; trend, multi-asset, loose ~33%; mean reversion, breakout, risk 0% |
+| Qwen2.5-Coder 7B | local Ollama | v1 | 21% (8/39, 11–36%) | wrong declines 24 → 22; must-decline cases 4/4 → 1/4 |
+
+\* One case unscored (Groq rejected a malformed `commentary` tool call); the harness now
+returns such replies to the model so it can retry.
+
+- **v1** = the baseline agent plus prompt rules to fix its own errors instead of declining,
+  and one pushback when it declines right after a failed test
+  (`runs/qwen2.5-coder_7b/v1/change.md`).
+- **gpt-oss-120b** passed 31 of the 33 implementable cases and never declined one wrongly.
+  It failed `three_down_days` (misread rule), `decline_leverage` (wrote 3x-leverage code
+  the engine silently caps at 1x) and `loose_rotation`. The last is a 62-bar lookback for
+  "3 months" that the accepted readings (60/63/66) don't cover, arguably a grader false
+  negative.
+- **Qwen2.5-Coder 7B** never produced a native tool call; all 70 of its baseline tool
+  calls were recovered from text. Most of its failures are declines issued right after its
+  own code crashed.
+
 ## Running it
 
 ```bash
@@ -70,6 +95,26 @@ python -m evals.strategy_agent.run_eval --model qwen2.5-coder:7b
 python -m evals.strategy_agent.run_eval --model <model-id> \
     --base-url https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY --concurrency 4
 ```
+
+### Free-tier provider chains
+
+`agent/chains.json` defines chains: one open-weight model served by several free providers
+(Groq, OpenRouter, NVIDIA NIM, Hugging Face, GitHub Models...). Copy `.env.example` to `.env`
+(git-ignored) and fill in the keys you have; providers without a key are skipped.
+
+```bash
+python -m agent.providers check gpt-oss-120b          # which entries work, native tool calls or not
+python -m agent.providers models groq gpt-oss         # look up current model ids
+python -m evals.strategy_agent.run_eval --chain gpt-oss-120b --concurrency 2
+```
+
+On a rate limit the provider cools down for as long as its reset headers say and the request
+moves to the next provider. Bad keys and exhausted credits drop a provider for the run. If every
+provider is busy, the runner waits for the earliest reset (up to `--max-wait-s`, default 30 min);
+beyond that it stops starting cases and the same command resumes later. Each row records which
+providers served it; `<variant>/providers.json` has per-provider counts. Chains keep one model
+per chain so scores stay comparable; the `any-free` chain mixes models and its rows are flagged
+`mixed_models`.
 
 Results go to `runs/<model>/<variant>/`:
 - `results.jsonl`: one graded row per case and rep, with explanations, token usage and latency

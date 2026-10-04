@@ -13,6 +13,10 @@ Examples (from the repo root):
     python -m evals.strategy_agent.run_eval --model llama-3.3-70b-versatile \\
         --base-url https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY --variant v1
 
+    # Free-tier provider chain (agent/chains.json): fails over between providers on rate
+    # limits, waits for resets up to --max-wait-s, and stops cleanly if quotas run out
+    python -m evals.strategy_agent.run_eval --chain gpt-oss-120b --concurrency 2
+
 Layout written under --out-dir (default evals/strategy_agent/runs/<model>/):
     _state.json                 metric definitions for the report
     <variant>/results.jsonl     one graded row per (case, rep), written as each finishes
@@ -40,6 +44,7 @@ from typing import Any, Dict, List, Optional
 
 from agent import StrategyAgent
 from agent.llm import ModelMismatchError, OpenAICompatModel
+from agent.providers import AllProvidersFailed, ChainModel, ProviderPool, QuotaExhausted, load_chain
 
 from .cases import CASES, CASES_BY_ID
 from .fake_models import FAKES
@@ -47,7 +52,8 @@ from .grading import METRICS, PASS_AGREEMENT, settings_for, grade
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-HARNESS_PATHS = ["agent/agent.py", "agent/llm.py", "agent/sandbox.py", "evals/strategy_agent/cases.py",
+HARNESS_PATHS = ["agent/agent.py", "agent/llm.py", "agent/sandbox.py", "agent/providers.py", "agent/chains.json",
+                 "evals/strategy_agent/cases.py",
                  "evals/strategy_agent/grading.py", "evals/strategy_agent/run_eval.py"]
 
 STATE = {
@@ -65,6 +71,8 @@ STATE = {
         {"id": "tool_calls", "label": "Tool calls"},
         {"id": "dev_runs", "label": "Test runs"},
         {"id": "text_tool_calls", "label": "Text tool calls"},
+        {"id": "decline_pushbacks", "label": "Pushbacks"},
+        {"id": "provider_switches", "label": "Prov. switches"},
         {"id": "in_tokens", "label": "In tokens"},
         {"id": "out_tokens", "label": "Out tokens"},
     ],
@@ -109,8 +117,11 @@ class Writer:
         return rel
 
 
-def run_case(case: Dict[str, Any], rep: int, make_model, writer: Writer, timeout_s: float) -> str:
+def run_case(case: Dict[str, Any], rep: int, make_model, writer: Writer, timeout_s: float,
+             stop: Optional[threading.Event] = None) -> str:
     """Run one (case, rep) with a hard wall-clock ceiling; returns a one-line status."""
+    if stop is not None and stop.is_set():
+        return f"{case['id']}#{rep}: skipped (quota exhausted; re-run the same command to resume)"
     box: Dict[str, Any] = {}
 
     def work():
@@ -130,7 +141,11 @@ def run_case(case: Dict[str, Any], rep: int, make_model, writer: Writer, timeout
         return f"{case['id']}#{rep}: TIMEOUT"
     if "error" in box:
         exc = box["error"]
-        cls = "model_mismatch" if isinstance(exc, ModelMismatchError) else "api_error"
+        if isinstance(exc, QuotaExhausted) and stop is not None:
+            stop.set()  # every provider is out of quota: stop starting new cases
+        cls = ("quota_exhausted" if isinstance(exc, QuotaExhausted)
+               else "all_providers_failed" if isinstance(exc, AllProvidersFailed)
+               else "model_mismatch" if isinstance(exc, ModelMismatchError) else "api_error")
         writer.append("errors.jsonl", {**base, "class": cls, "error": f"{type(exc).__name__}: {exc}"[:2000]})
         return f"{case['id']}#{rep}: ERROR {type(exc).__name__}"
 
@@ -164,6 +179,11 @@ def run_case(case: Dict[str, Any], rep: int, make_model, writer: Writer, timeout
         "tool_calls": res.tool_calls,
         "dev_runs": res.dev_runs,
         "text_tool_calls": res.text_tool_calls,
+        "providers": sorted(set(res.providers)),
+        "provider_switches": sum(1 for a, b in zip(res.providers, res.providers[1:]) if a != b),
+        "served_models": sorted(set(res.served_models)),
+        "mixed_models": len({m.lower().split("/")[-1].split(":")[0] for m in res.served_models}) > 1,
+        "decline_pushbacks": res.decline_pushbacks,
         "retries": res.retries,
         "trace": trace_ref,
         "meta": {"detail": graded["detail"], "code": res.code},
@@ -212,6 +232,9 @@ def summarise(variant_dir: Path) -> Dict[str, Any]:
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--model", help="model id as the server knows it, e.g. qwen2.5-coder:7b")
+    p.add_argument("--chain", help="provider chain from agent/chains.json, e.g. gpt-oss-120b (fails over on rate limits)")
+    p.add_argument("--max-wait-s", type=float, default=1800.0,
+                   help="with --chain: longest wait for a rate-limit reset when every provider is busy")
     p.add_argument("--base-url", default="http://localhost:11434/v1", help="OpenAI-compatible endpoint (default: local Ollama)")
     p.add_argument("--api-key-env", help="name of the environment variable holding the API key (not the key itself)")
     p.add_argument("--fake", choices=sorted(FAKES), help="use a scripted model to check the harness for free")
@@ -226,9 +249,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="record the current harness files as approved (run once after reviewing a change)")
     args = p.parse_args(argv)
 
-    if not args.fake and not args.model:
-        p.error("--model is required unless --fake is given")
-    model_name = f"fake-{args.fake}" if args.fake else args.model
+    if sum(bool(x) for x in (args.fake, args.model, args.chain)) != 1:
+        p.error("give exactly one of --model, --chain or --fake")
+    model_name = f"fake-{args.fake}" if args.fake else (args.chain or args.model)
     flow = Path(args.out_dir) if args.out_dir else HERE / "runs" / slug(model_name)
     flow.mkdir(parents=True, exist_ok=True)
     (flow / "_state.json").write_text(json.dumps(STATE, indent=2), encoding="utf-8")
@@ -246,8 +269,18 @@ def main(argv: Optional[List[str]] = None) -> int:
               "with --approve-harness.", file=sys.stderr)
         return 2
 
+    timeout_s = args.timeout_s
+    pool = None
     if args.fake:
         make_model = FAKES[args.fake]
+    elif args.chain:
+        try:
+            pool = ProviderPool(args.chain, load_chain(args.chain))
+        except (KeyError, ValueError) as exc:
+            p.error(str(exc).strip("'\""))
+        print(f"chain {args.chain}: " + " -> ".join(e.label for e in pool.entries))
+        make_model = lambda: ChainModel(pool, max_wait_s=args.max_wait_s)  # noqa: E731
+        timeout_s += args.max_wait_s  # time spent waiting for rate-limit resets doesn't count against a case
     else:
         key = os.environ.get(args.api_key_env, "") if args.api_key_env else "not-needed"
         if args.api_key_env and not key:
@@ -262,10 +295,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"{model_name}: {len(todo)} case runs to do ({len(done)} already done) -> {writer.dir}")
 
     started = time.perf_counter()
+    stop = threading.Event()
     with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
-        futures = [ex.submit(run_case, c, r, make_model, writer, args.timeout_s) for c, r in todo]
+        futures = [ex.submit(run_case, c, r, make_model, writer, timeout_s, stop) for c, r in todo]
         for i, f in enumerate(futures, 1):
             print(f"[{i}/{len(todo)}] {f.result()}", flush=True)
+    if pool is not None:
+        print("\nprovider usage: " + "; ".join(
+            f"{label} ok={s['ok']} 429={s['rate_limited']} err={s['errors']}" for label, s in pool.stats.items()))
+        (writer.dir / "providers.json").write_text(json.dumps(
+            {"chain": args.chain, "stats": pool.stats,
+             "disabled": {pool.entries[i].label: why for i, why in pool.disabled.items()}}, indent=2), encoding="utf-8")
+    if stop.is_set():
+        print("\nStopped early: every provider ran out of quota. Re-run the same command later to resume.")
 
     s = summarise(writer.dir)
     if s["pass_rate"] is not None:

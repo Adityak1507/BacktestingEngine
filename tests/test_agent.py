@@ -170,3 +170,25 @@ def test_text_tool_call_parser_tolerates_raw_newlines_and_ignores_unknown_names(
     text = '<tool_call>{"name": "run_backtest", "arguments": {"code": "line1\nline2"}}</tool_call> {"name": "rm_rf"}'
     calls = parse_text_tool_calls(text, {"run_backtest"})
     assert [(c.name, c.arguments["code"]) for c in calls] == [("run_backtest", "line1\nline2")]
+
+
+def test_decline_right_after_a_failed_test_is_pushed_back_once():
+    broken = IDLE.replace("pass", "return ctx.nope()")
+    fixed = CASES_BY_ID["sma_cross"]["reference"]
+    model = Script([call("run_backtest", code=broken), call("decline", reason="engine can't do this"),
+                    call("submit_strategy", code=fixed)])
+    res = StrategyAgent(model).run("SMA crossover please")
+    assert res.outcome == "submitted" and res.decline_pushbacks == 1
+    assert "Decline not accepted yet" in model.seen[2][-1]["content"]
+
+
+def test_repeated_decline_after_pushback_is_accepted():
+    broken = IDLE.replace("pass", "return ctx.nope()")
+    model = Script([call("run_backtest", code=broken), call("decline", reason="a"), call("decline", reason="b")])
+    res = StrategyAgent(model).run("buy if tomorrow is up")
+    assert res.outcome == "declined" and res.reason == "b" and res.decline_pushbacks == 1
+
+
+def test_decline_without_a_failed_test_is_accepted_immediately():
+    res = StrategyAgent(Script([call("decline", reason="needs earnings data")])).run("earnings strategy")
+    assert res.outcome == "declined" and res.decline_pushbacks == 0

@@ -33,6 +33,7 @@ class ModelTurn:
     finish_reason: str
     usage: Dict[str, int] = field(default_factory=dict)
     retries: int = 0
+    provider: str = ""  # which provider served this turn (set by ChainModel)
 
 
 class ChatModel(Protocol):
@@ -43,6 +44,10 @@ class ChatModel(Protocol):
 
 class ModelMismatchError(RuntimeError):
     """The server answered with a different model than the one requested."""
+
+
+class EmptyResponseError(RuntimeError):
+    """The server returned HTTP 200 but no choices (some free routes do this when overloaded)."""
 
 
 class OpenAICompatModel:
@@ -64,6 +69,7 @@ class OpenAICompatModel:
         max_tokens: int = 4096,
         max_attempts: int = 5,
         request_timeout_s: float = 300.0,
+        default_headers: Optional[Dict[str, str]] = None,
     ):
         from openai import OpenAI
 
@@ -72,7 +78,8 @@ class OpenAICompatModel:
         self.max_tokens = max_tokens
         self.max_attempts = max_attempts
         # Retries are done here (not by the client) so they can be counted.
-        self._client = OpenAI(base_url=base_url, api_key=api_key, max_retries=0, timeout=request_timeout_s)
+        self._client = OpenAI(base_url=base_url, api_key=api_key, max_retries=0, timeout=request_timeout_s,
+                              default_headers=default_headers)
 
     def chat(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> ModelTurn:
         import openai
@@ -84,12 +91,23 @@ class OpenAICompatModel:
                     temperature=self.temperature, max_tokens=self.max_tokens,
                 )
                 break
+            except openai.BadRequestError as exc:
+                # Some servers (e.g. Groq) validate tool calls and reject a malformed one with
+                # `tool_use_failed`. That's the model's mistake, not the server's: hand the
+                # model's raw output back as a plain reply so the agent can nudge it to retry.
+                err = (exc.body or {}).get("error", exc.body) if isinstance(exc.body, dict) else {}
+                if isinstance(err, dict) and err.get("code") == "tool_use_failed":
+                    return ModelTurn(str(err.get("failed_generation") or ""), [], self.name, "tool_use_failed",
+                                     {}, attempt)
+                raise
             except (openai.RateLimitError, openai.APIConnectionError, openai.APITimeoutError,
                     openai.InternalServerError):
                 if attempt == self.max_attempts - 1:
                     raise
                 # Jittered exponential backoff on transient errors.
                 time.sleep(min(60.0, 2 ** attempt) * (0.5 + random.random()))
+        if not resp.choices:
+            raise EmptyResponseError(f"{self.name}: response had no choices")
         served = resp.model or self.name
         if not _same_model(self.name, served):
             raise ModelMismatchError(f"requested {self.name!r} but the server answered as {served!r}")
@@ -143,6 +161,14 @@ def parse_text_tool_calls(text: str, tool_names) -> List[ToolCall]:
 
 
 def _same_model(requested: str, served: str) -> bool:
-    """Tolerate providers that echo a namespaced or tagged id (e.g. 'meta/llama-3' vs 'llama-3')."""
-    norm = lambda s: s.lower().split("/")[-1].removesuffix(":latest")  # noqa: E731
+    """Tolerate providers that echo a namespaced or tagged id.
+
+    'meta/llama-3' vs 'llama-3', 'qwen2.5-coder:7b' vs 'qwen2.5-coder:7b', 'x/model:free' vs 'model'.
+    Ollama tags (`name:7b`) are kept since they name different weights.
+    """
+    def norm(s: str) -> str:
+        s = s.lower().split("/")[-1]
+        for suffix in (":latest", ":free", ":beta", ":extended"):
+            s = s.removesuffix(suffix)
+        return s
     return norm(requested) == norm(served) or norm(served).startswith(norm(requested))

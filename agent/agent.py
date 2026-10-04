@@ -45,10 +45,20 @@ Stop-limit orders (both limit_price and stop_price) are not supported.
 - Never use information from the future: decisions on a bar may only use bars up to that bar.
 - Follow the user's definitions exactly (window lengths, inclusive/exclusive ranges, sizing,
   indicator formulas, when to enter and exit). Keep state on `self` when the rules need it.
-- If the request cannot be implemented faithfully with this engine and OHLCV data - it needs
-  future information, data the engine does not have (fundamentals, news, earnings...), or
-  unsupported features such as leverage beyond available cash - call `decline` with a short
-  reason instead of writing an approximation.
+- Not future information: the current bar's open, high, low and close, and every earlier bar.
+  Future information means bars AFTER the current one (e.g. "tomorrow's close").
+- Indicators need history: start `on_bar` with a warm-up guard such as
+  `if len(ctx.history()) < N: return` so early bars don't raise IndexError or use partial windows.
+
+# Errors and declining
+- An error from run_backtest is a bug in YOUR code, never a reason to decline. Read the traceback,
+  fix the code and run run_backtest again. Repeat until it runs, then submit.
+- No trades on the test data is also not a reason to decline: check the logic, and submit if it
+  matches the request.
+- Call `decline` ONLY when the request itself cannot be implemented faithfully with this engine and
+  OHLCV data: it needs future information, data the engine does not have (fundamentals, news,
+  earnings, sentiment, economic events...), or unsupported features such as leverage beyond
+  available cash. Decide this from the request, before writing code; give that reason.
 
 Respond only with tool calls."""
 
@@ -111,6 +121,9 @@ class AgentResult:
     tool_calls: int = 0
     dev_runs: int = 0
     text_tool_calls: int = 0  # tool calls recovered from plain text (model didn't use the tool API)
+    decline_pushbacks: int = 0  # declines rejected because the agent's own last test had failed
+    providers: List[str] = field(default_factory=list)  # provider that served each model turn
+    served_models: List[str] = field(default_factory=list)  # model id each turn was served as
     usage: Dict[str, int] = field(default_factory=lambda: {"input_tokens": 0, "output_tokens": 0})
     model: str = ""
     stop_reason: str = ""
@@ -120,9 +133,12 @@ class AgentResult:
 
 class StrategyAgent:
     def __init__(self, model: ChatModel, max_turns: int = 10, max_nudges: int = 2, sandbox_timeout_s: float = 60.0,
-                 recover_text_tool_calls: bool = True):
+                 recover_text_tool_calls: bool = True, max_decline_pushbacks: int = 1):
         self.model = model
         self.recover_text_tool_calls = recover_text_tool_calls
+        # Small models often "decline" as soon as their own code crashes. A decline that comes
+        # right after a failed test is bounced back this many times before it is accepted.
+        self.max_decline_pushbacks = max_decline_pushbacks
         self.max_turns = max_turns
         self.max_nudges = max_nudges
         self.sandbox_timeout_s = sandbox_timeout_s
@@ -134,6 +150,7 @@ class StrategyAgent:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user},
         ]
+        self._last_test_error: Optional[str] = None
         res = AgentResult(outcome="gave_up", trace=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user},
@@ -211,6 +228,9 @@ class StrategyAgent:
     def _account(res: AgentResult, turn: ModelTurn) -> None:
         res.turns += 1
         res.model = turn.model
+        res.served_models.append(turn.model)
+        if turn.provider:
+            res.providers.append(turn.provider)
         res.stop_reason = turn.finish_reason
         res.retries += turn.retries
         for k, v in turn.usage.items():
@@ -221,6 +241,13 @@ class StrategyAgent:
         if call.parse_error:
             return f"Error: {call.parse_error}. Send the arguments as a JSON object.", False
         if call.name == "decline":
+            if self._last_test_error and res.decline_pushbacks < self.max_decline_pushbacks:
+                res.decline_pushbacks += 1
+                return ("Decline not accepted yet: your last test failed because of a bug in your own code, "
+                        "which is not a reason to decline. Fix it and call run_backtest again.\n"
+                        f"The error was:\n{self._last_test_error}\n"
+                        "Only decline if the request itself needs future bars, data the engine doesn't "
+                        "have, or unsupported features."), False
             res.outcome, res.reason = "declined", str(call.arguments.get("reason", ""))
             return "Declined.", True
         if call.name not in ("run_backtest", "submit_strategy"):
@@ -231,6 +258,7 @@ class StrategyAgent:
 
         res.dev_runs += 1
         report, ok = self.dev_backtest(code, settings)
+        self._last_test_error = None if ok else report
         if call.name == "submit_strategy":
             if not ok:
                 return "Submission rejected - fix the problem and submit again.\n" + report, False
