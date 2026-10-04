@@ -1,5 +1,7 @@
 # Backtesting Engine
 
+[![CI](https://github.com/Adityak1507/BacktestingEngine/actions/workflows/ci.yml/badge.svg)](https://github.com/Adityak1507/BacktestingEngine/actions/workflows/ci.yml)
+
 A small, event-driven backtesting engine in Python. Write a trading strategy,
 run it over historical OHLCV bars, and get an equity curve, a trade log and
 performance metrics.
@@ -305,9 +307,14 @@ tests/           pytest suite
 ## Tests
 
 ```bash
-pytest                          # engine, fast path and API
-cd frontend && npm run build    # type-checks and builds the UI
+pytest                                     # engine, fast path, API, agent, providers
+python -m evals.strategy_agent.selfcheck   # eval harness: oracle must score 100%, null 0%
+cd frontend && npm run build               # type-checks and builds the UI
 ```
+
+GitHub Actions runs all three on every push and pull request (`.github/workflows/ci.yml`):
+the test suite with an error-only lint on Python 3.11-3.13, the eval self-check (no LLM
+calls), and the frontend build.
 
 ## Limitations
 

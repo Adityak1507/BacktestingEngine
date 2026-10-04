@@ -87,6 +87,7 @@ pip install -e ".[agent]"
 # Free harness checks: expect ~100% and ~0%
 python -m evals.strategy_agent.run_eval --fake oracle
 python -m evals.strategy_agent.run_eval --fake null
+python -m evals.strategy_agent.selfcheck     # both at once, fails unless exactly 100% / 0% (runs in CI)
 
 # Local model through Ollama (ollama pull qwen2.5-coder:7b)
 python -m evals.strategy_agent.run_eval --model qwen2.5-coder:7b
