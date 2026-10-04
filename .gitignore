@@ -11,3 +11,5 @@ evals/**/runs/**/traces/
 evals/**/runs/**/report.html
 evals/**/runs/**/trajectory/
 evals/**/runs/.approved_harness
+
+.claude/
