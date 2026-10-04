@@ -24,3 +24,5 @@ packages = ["backtester"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# api/, agent/ and evals/ live at the repo root and are not installed packages
+pythonpath = ["."]
