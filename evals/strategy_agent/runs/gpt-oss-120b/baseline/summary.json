@@ -1,0 +1,35 @@
+{
+  "cases_scored": 38,
+  "errors": 2,
+  "truncated": 0,
+  "pass_rate": 0.9210526315789473,
+  "pass_ci95": [
+    0.792003210797347,
+    0.972785898605735
+  ],
+  "metric_means": {
+    "pass": 0.9210526315789473,
+    "valid": 1.0,
+    "runs": 1.0,
+    "no_lookahead": 1.0,
+    "agreement": 0.9554484730898686
+  },
+  "pass_by_category": {
+    "breakout": 1.0,
+    "calendar": 1.0,
+    "decline": 0.75,
+    "loose": 0.875,
+    "mean_reversion": 0.8333333333333334,
+    "multi_asset": 1.0,
+    "risk": 1.0,
+    "trend": 1.0
+  },
+  "mean_latency_s": 39.558157894736844,
+  "tokens": {
+    "input": 118916,
+    "output": 54186
+  },
+  "models": [
+    "openai/gpt-oss-120b"
+  ]
+}

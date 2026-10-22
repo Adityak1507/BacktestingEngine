@@ -1,0 +1,117 @@
+{
+  "_comment": "Each chain is tried in order. Entries without an API key in the environment are skipped. Free-tier model ids change often: verify with `python -m agent.providers check <chain>` and list ids with `python -m agent.providers models <provider> <filter>`. Last verified against Groq, OpenRouter and NVIDIA on 2026-10-04; huggingface entries are unverified until an HF_TOKEN is added.",
+  "chains": {
+    "qwen3.8-27b": {
+      "description": "Qwen3.8 27B: the one open-weight model free on both Groq and OpenRouter",
+      "entries": [
+        {
+          "provider": "groq",
+          "model": "qwen/qwen3.8-27b"
+        },
+        {
+          "provider": "openrouter",
+          "model": "qwen/qwen3.8-27b:free"
+        }
+      ]
+    },
+    "gpt-oss-120b": {
+      "description": "OpenAI's open-weight 117B MoE (Apache 2.0); free on Groq (retired on NVIDIA 2026-09-03)",
+      "entries": [
+        {
+          "provider": "groq",
+          "model": "openai/gpt-oss-120b"
+        },
+        {
+          "provider": "huggingface",
+          "model": "openai/gpt-oss-120b"
+        }
+      ]
+    },
+    "gpt-oss-20b": {
+      "description": "OpenAI's open-weight 21B MoE (3.6B active), native tool calling; free on Groq and NVIDIA",
+      "entries": [
+        {
+          "provider": "groq",
+          "model": "openai/gpt-oss-20b"
+        },
+        {
+          "provider": "nvidia",
+          "model": "openai/gpt-oss-20b"
+        },
+        {
+          "provider": "huggingface",
+          "model": "openai/gpt-oss-20b"
+        }
+      ]
+    },
+    "nemotron-3-ultra": {
+      "description": "NVIDIA Nemotron 3 Ultra 550B-A55B (open weights), the largest free open model here",
+      "entries": [
+        {
+          "provider": "nvidia",
+          "model": "nvidia/nemotron-3-ultra-550b-a55b"
+        },
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3-ultra-550b-a55b:free"
+        }
+      ]
+    },
+    "nemotron-3-super": {
+      "description": "NVIDIA Nemotron 3 Super 120B-A12B (open weights)",
+      "entries": [
+        {
+          "provider": "nvidia",
+          "model": "nvidia/nemotron-3-super-120b-a12b"
+        },
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3-super-120b-a12b:free"
+        }
+      ]
+    },
+    "gemma-4-31b": {
+      "description": "Google Gemma 4 31B (open weights)",
+      "entries": [
+        {
+          "provider": "nvidia",
+          "model": "google/gemma-4-31b-it"
+        },
+        {
+          "provider": "openrouter",
+          "model": "google/gemma-4-31b-it:free"
+        }
+      ]
+    },
+    "any-free": {
+      "description": "MIXED MODELS: keeps an agent running on whatever is free. Not for model comparisons; eval rows are flagged when a case is served by more than one model.",
+      "mixed_models": true,
+      "entries": [
+        {
+          "provider": "groq",
+          "model": "openai/gpt-oss-120b"
+        },
+        {
+          "provider": "groq",
+          "model": "qwen/qwen3.8-27b"
+        },
+        {
+          "provider": "openrouter",
+          "model": "qwen/qwen3.8-27b:free"
+        },
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3-super-120b-a12b:free"
+        },
+        {
+          "provider": "openrouter",
+          "model": "google/gemma-4-31b-it:free"
+        },
+        {
+          "provider": "ollama",
+          "model": "qwen2.5-coder:7b"
+        }
+      ]
+    }
+  }
+}

@@ -19,7 +19,7 @@ class Trade:
     exit_price: float
     quantity: float  # positive = closed long, negative = closed short
     exit_time: pd.Timestamp
-    pnl: float  # after the commission of the closing fill
+    pnl: float  # net of the entry and exit commissions attributable to these shares
 
     @property
     def return_pct(self) -> float:
@@ -32,6 +32,8 @@ class Portfolio:
         self.cash = float(initial_cash)
         self.positions: Dict[str, float] = {}
         self.avg_cost: Dict[str, float] = {}
+        # Commission paid to open the shares still held, charged to trades as they close.
+        self.entry_commission: Dict[str, float] = {}
         self.fills: List[Fill] = []
         self.trades: List[Trade] = []
         self.total_commission = 0.0
@@ -50,21 +52,30 @@ class Portfolio:
             new_qty = held + qty
             self.avg_cost[sym] = (held * cost + qty * price) / new_qty
             self.positions[sym] = new_qty
+            self.entry_commission[sym] = self.entry_commission.get(sym, 0.0) + fill.commission
             return
 
         # Reducing, closing or flipping a position.
         closed = -qty if abs(qty) <= abs(held) else held
-        pnl = closed * (price - cost) - fill.commission
+        open_comm = self.entry_commission.get(sym, 0.0)
+        entry_part = open_comm * closed / held
+        exit_part = fill.commission * abs(closed) / abs(qty)
+        pnl = closed * (price - cost) - entry_part - exit_part
         self.trades.append(Trade(sym, cost, price, closed, fill.timestamp, pnl))
 
         new_qty = held + qty
         if new_qty == 0:
             self.positions.pop(sym, None)
             self.avg_cost.pop(sym, None)
+            self.entry_commission.pop(sym, None)
+        elif (new_qty > 0) != (held > 0):
+            # Flipped: the remainder opened at this price, with the rest of this fill's commission.
+            self.positions[sym] = new_qty
+            self.avg_cost[sym] = price
+            self.entry_commission[sym] = fill.commission - exit_part
         else:
             self.positions[sym] = new_qty
-            if (new_qty > 0) != (held > 0):
-                self.avg_cost[sym] = price  # flipped: the remainder opened at this price
+            self.entry_commission[sym] = open_comm - entry_part
 
     def market_value(self, prices: Dict[str, float]) -> float:
         return sum(qty * prices[sym] for sym, qty in self.positions.items())

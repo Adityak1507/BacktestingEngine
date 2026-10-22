@@ -1,0 +1,35 @@
+{
+  "cases_scored": 39,
+  "errors": 0,
+  "truncated": 0,
+  "pass_rate": 0.0,
+  "pass_ci95": [
+    0.0,
+    0.08966985360023902
+  ],
+  "metric_means": {
+    "pass": 0.0,
+    "valid": 1.0,
+    "runs": 1.0,
+    "no_lookahead": 1.0,
+    "agreement": 0.0
+  },
+  "pass_by_category": {
+    "breakout": 0.0,
+    "calendar": 0.0,
+    "decline": 0.0,
+    "loose": 0.0,
+    "mean_reversion": 0.0,
+    "multi_asset": 0.0,
+    "risk": 0.0,
+    "trend": 0.0
+  },
+  "mean_latency_s": 3.366923076923077,
+  "tokens": {
+    "input": 0,
+    "output": 0
+  },
+  "models": [
+    "fake-null"
+  ]
+}

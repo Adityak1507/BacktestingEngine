@@ -32,7 +32,11 @@ class Context:
     def history(self, symbol: Optional[str] = None, length: Optional[int] = None) -> pd.DataFrame:
         """OHLCV bars up to and including the current bar."""
         df = self._engine.data[self._sym(symbol)].iloc[: self._i + 1]
-        return df if length is None else df.iloc[-length:]
+        if length is not None:
+            df = df.iloc[-length:]
+        # A slice is a view whose numpy `.base` reaches the whole dataset, future bars
+        # included, so hand out a copy.
+        return df.copy()
 
     def price(self, symbol: Optional[str] = None) -> float:
         """Latest close for the symbol."""
@@ -63,6 +67,8 @@ class Context:
         stop_price: Optional[float] = None,
     ) -> None:
         """Submit an order; it executes on the next bar."""
+        if limit_price is not None and stop_price is not None:
+            raise ValueError("stop-limit orders are not supported; pass limit_price or stop_price")
         self._engine.broker.submit(
             Order(self._sym(symbol), float(quantity), self.timestamp, limit_price, stop_price)
         )

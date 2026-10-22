@@ -57,7 +57,7 @@ def compute_metrics(
     calmar = cagr / abs(max_dd) if max_dd < 0 and not np.isnan(cagr) else float("nan")
 
     pnls = np.array([t.pnl for t in trades])
-    wins, losses = pnls[pnls > 0], pnls[pnls <= 0]
+    wins, losses = pnls[pnls > 0], pnls[pnls < 0]  # break-even trades are neither
     gross_loss = abs(losses.sum())
 
     return {

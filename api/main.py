@@ -136,18 +136,25 @@ STRATEGIES: List[Dict[str, Any]] = [
 
 
 def build_strategy(spec: StrategySpec):
-    defaults = {
-        p["key"]: p["default"] for s in STRATEGIES if s["id"] == spec.name for p in s["params"]
-    }
-    p = {**defaults, **spec.params}
-    if spec.name == "sma_crossover":
-        if int(p["fast"]) >= int(p["slow"]):
-            raise HTTPException(422, "Fast window must be shorter than slow window.")
-        return SmaCrossover(int(p["fast"]), int(p["slow"]))
-    if spec.name == "rsi_mean_reversion":
-        if p["oversold"] >= p["exit_level"]:
-            raise HTTPException(422, "The buy level must be below the sell level.")
-        return RsiMeanReversion(int(p["period"]), float(p["oversold"]), float(p["exit_level"]))
+    schema = {p["key"]: p for s in STRATEGIES if s["id"] == spec.name for p in s["params"]}
+    unknown = sorted(set(spec.params) - set(schema))
+    if unknown:
+        raise HTTPException(422, f"Unknown parameter(s) for {spec.name}: {', '.join(unknown)}.")
+    p = {key: param["default"] for key, param in schema.items()}
+    p.update(spec.params)
+    for key, value in p.items():
+        lo, hi = schema[key]["min"], schema[key]["max"]
+        if not lo <= value <= hi:
+            raise HTTPException(422, f"{schema[key]['label']} must be between {lo} and {hi}.")
+    if spec.name == "rsi_mean_reversion" and p["oversold"] >= p["exit_level"]:
+        raise HTTPException(422, "The buy level must be below the sell level.")
+    try:
+        if spec.name == "sma_crossover":
+            return SmaCrossover(int(p["fast"]), int(p["slow"]))
+        if spec.name == "rsi_mean_reversion":
+            return RsiMeanReversion(int(p["period"]), float(p["oversold"]), float(p["exit_level"]))
+    except ValueError as exc:
+        raise HTTPException(422, f"{str(exc)[0].upper()}{str(exc)[1:]}.") from exc
     return BuyAndHold()
 
 
@@ -239,8 +246,9 @@ def backtest(req: BacktestRequest):
 def sweep(req: SweepRequest):
     if req.fast_min > req.fast_max or req.slow_min > req.slow_max:
         raise HTTPException(422, "Range minimum must not exceed its maximum.")
-    fasts = list(range(req.fast_min, req.fast_max + 1, req.step))
-    slows = list(range(req.slow_min, req.slow_max + 1, req.step))
+    # range() objects are lazy, so oversized requests are rejected before allocating anything.
+    fasts = range(req.fast_min, req.fast_max + 1, req.step)
+    slows = range(req.slow_min, req.slow_max + 1, req.step)
     if len(fasts) * len(slows) > MAX_SWEEP_PAIRS:
         raise HTTPException(422, f"Too many combinations; keep it under {MAX_SWEEP_PAIRS:,}.")
 

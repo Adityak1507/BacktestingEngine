@@ -1,0 +1,11 @@
+{
+  "chain": "gpt-oss-120b",
+  "stats": {
+    "groq:openai/gpt-oss-120b": {
+      "ok": 0,
+      "rate_limited": 0,
+      "errors": 1
+    }
+  },
+  "disabled": {}
+}

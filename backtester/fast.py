@@ -186,6 +186,8 @@ def sma_grid_search(
     close = data["close"].to_numpy()
     rows: list[Dict[str, float]] = []
     for fast, slow in itertools.product(fast_values, slow_values):
+        if fast < 1:
+            raise ValueError("SMA windows must be at least 1")
         if fast >= slow:
             continue
         sig = sma_signal(close, int(fast), int(slow))
