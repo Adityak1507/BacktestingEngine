@@ -51,15 +51,69 @@ def _first_bad(mask: pd.Series) -> str:
     return f"{bad.index[0]} ({len(bad)} rows)"
 
 
-def load_csv(path: str, date_column: str = "date") -> pd.DataFrame:
-    """Load an OHLCV CSV (e.g. a Yahoo Finance export) indexed by date."""
+def adjust_prices(df: pd.DataFrame) -> pd.DataFrame:
+    """Scale open/high/low/close by the adjusted-close ratio (dividends and splits).
+
+    Without this, returns computed from raw prices show false drops on
+    ex-dividend and split dates.
+    """
+    df = df.copy()
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    if "adj close" not in df.columns:
+        return df
+    ratio = df["adj close"] / df["close"]
+    for col in ("open", "high", "low", "close"):
+        df[col] = df[col] * ratio
+    return df.drop(columns=["adj close"])
+
+
+def load_csv(path, date_column: str = "date", adjust: bool = True) -> pd.DataFrame:
+    """Load an OHLCV CSV (e.g. a Yahoo Finance export) indexed by date.
+
+    If an "Adj Close" column is present and `adjust` is true, prices are
+    adjusted for dividends and splits.
+    """
     df = pd.read_csv(path)
     cols = {c.lower(): c for c in df.columns}
     if date_column.lower() not in cols:
         where = f" in {path}" if isinstance(path, str) else ""
         raise ValueError(f"column {date_column!r} not found{where}")
     df = df.set_index(cols[date_column.lower()])
+    if adjust:
+        df = adjust_prices(df)
     return validate_ohlcv(df)
+
+
+# Public daily OHLCV files hosted on GitHub, used for examples and ML evaluation.
+SAMPLE_DATASETS = {
+    "ORCL": "https://raw.githubusercontent.com/mementum/backtrader/master/datas/orcl-1995-2014.txt",
+    "YHOO": "https://raw.githubusercontent.com/mementum/backtrader/master/datas/yhoo-1996-2015.txt",
+    "NVDA": "https://raw.githubusercontent.com/mementum/backtrader/master/datas/nvda-1999-2014.txt",
+    "GOOG": "https://raw.githubusercontent.com/kernc/backtesting.py/master/backtesting/test/GOOG.csv",
+}
+
+
+def load_sample(symbol: str, cache_dir: Optional[str] = None) -> pd.DataFrame:
+    """Download (once) and load a bundled sample dataset: ORCL, YHOO, NVDA or GOOG.
+
+    Files are cached under ~/.cache/backtester (or `cache_dir`).
+    """
+    import urllib.request
+    from pathlib import Path
+
+    symbol = symbol.upper()
+    if symbol not in SAMPLE_DATASETS:
+        raise ValueError(f"unknown sample {symbol!r}; choose from {sorted(SAMPLE_DATASETS)}")
+    folder = Path(cache_dir) if cache_dir else Path.home() / ".cache" / "backtester"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{symbol}.csv"
+    if not path.exists():
+        tmp = path.with_suffix(".part")
+        with urllib.request.urlopen(SAMPLE_DATASETS[symbol], timeout=60) as resp:
+            tmp.write_bytes(resp.read())
+        tmp.replace(path)
+    raw = pd.read_csv(path, index_col=0, parse_dates=True)
+    return validate_ohlcv(adjust_prices(raw))
 
 
 def load_yahoo(

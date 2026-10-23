@@ -1,7 +1,7 @@
 """A small event-driven backtesting engine."""
 
 from .broker import CostModel, Fill, Order
-from .data import generate_gbm, load_csv, load_yahoo
+from .data import generate_gbm, load_csv, load_sample, load_yahoo
 from .engine import Backtest, BacktestResult
 from .portfolio import Portfolio, Trade
 from .strategies import BuyAndHold, RsiMeanReversion, SmaCrossover
@@ -22,5 +22,6 @@ __all__ = [
     "Trade",
     "generate_gbm",
     "load_csv",
+    "load_sample",
     "load_yahoo",
 ]
